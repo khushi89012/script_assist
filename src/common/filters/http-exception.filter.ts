@@ -12,25 +12,41 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const status = exception.getStatus();
     const exceptionResponse = exception.getResponse();
 
-    // TODO: Implement comprehensive error handling
-    // This filter should:
-    // 1. Log errors appropriately based on their severity
-    // 2. Format error responses in a consistent way
-    // 3. Include relevant error details without exposing sensitive information
-    // 4. Handle different types of errors with appropriate status codes
+    // Format the error response consistently
+    let message = 'An unexpected error occurred.';
+    let errorDetails = exceptionResponse;
+    
+    // If the response is an object, destructure it
+    if (typeof exceptionResponse === 'object' && exceptionResponse !== null) {
+      message = (exceptionResponse as { message?: string }).message || message;
+      errorDetails = exceptionResponse;
+    } else {
+      message = exceptionResponse as string;
+    }
 
-    this.logger.error(
-      `HTTP Exception: ${exception.message}`,
-      exception.stack,
-    );
+    // Log the exception appropriately
+    if (status >= 500) {
+      // Server errors (e.g., internal server error)
+      this.logger.error(
+        `Internal Server Error: ${message}`,
+        exception.stack,
+      );
+    } else if (status >= 400) {
+      // Client errors (e.g., bad request, unauthorized)
+      this.logger.warn(
+        `Client Error: ${message}`,
+        exception.stack,
+      );
+    }
 
-    // Basic implementation (to be enhanced by candidates)
+    // Send response in a consistent format
     response.status(status).json({
       success: false,
       statusCode: status,
-      message: exception.message,
+      message: message,
+      error: errorDetails, // Optionally include additional error details (be mindful of sensitive data)
       path: request.url,
       timestamp: new Date().toISOString(),
     });
   }
-} 
+}

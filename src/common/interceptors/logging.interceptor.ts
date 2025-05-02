@@ -7,31 +7,30 @@ export class LoggingInterceptor implements NestInterceptor {
   private readonly logger = new Logger(LoggingInterceptor.name);
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
-    // TODO: Implement comprehensive request/response logging
-    // This interceptor should:
-    // 1. Log incoming requests with relevant details
-    // 2. Measure and log response time
-    // 3. Log outgoing responses
-    // 4. Include contextual information like user IDs when available
-    // 5. Avoid logging sensitive information
-
-    const req = context.switchToHttp().getRequest();
-    const method = req.method;
-    const url = req.url;
+    const request = context.switchToHttp().getRequest();
+    const method = request.method;
+    const url = request.url;
+    const user = request.user || {}; // Assuming `user` information is attached to the request
+    const userId = user.id || 'N/A'; // Replace with appropriate user field
+    const ip = request.ip || 'N/A'; // IP of the client making the request
     const now = Date.now();
 
-    // Basic implementation (to be enhanced by candidates)
-    this.logger.log(`Request: ${method} ${url}`);
+    // Log incoming request with contextual information
+    this.logger.log(`Incoming Request: ${method} ${url} | User: ${userId} | IP: ${ip}`);
 
     return next.handle().pipe(
       tap({
-        next: (val) => {
-          this.logger.log(`Response: ${method} ${url} ${Date.now() - now}ms`);
+        next: (response) => {
+          // Log response details including time taken
+          const responseTime = Date.now() - now;
+          this.logger.log(`Outgoing Response: ${method} ${url} | Status: ${response.statusCode} | Time: ${responseTime}ms`);
         },
         error: (err) => {
-          this.logger.error(`Error in ${method} ${url} ${Date.now() - now}ms: ${err.message}`);
+          // Log error details including time taken
+          const responseTime = Date.now() - now;
+          this.logger.error(`Error in ${method} ${url} | Status: ${err.status || 500} | Time: ${responseTime}ms | Error: ${err.message}`);
         },
       }),
     );
   }
-} 
+}

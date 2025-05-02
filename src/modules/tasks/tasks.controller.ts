@@ -24,7 +24,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard'; // Assuming JwtAut
 @ApiTags('tasks')
 @Controller('tasks')
 @UseGuards(JwtAuthGuard, RateLimitGuard)
-@RateLimit({ limit: 100, windowMs: 60000 })
+@RateLimit(100, 60000)
 @ApiBearerAuth()
 export class TasksController {
   constructor(private readonly tasksService: TasksService) {}

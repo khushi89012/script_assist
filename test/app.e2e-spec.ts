@@ -37,6 +37,4 @@ describe('AppController (e2e)', () => {
   it('/ (GET) - should be protected', () => {
     return request(app.getHttpServer()).get('/').expect(401);
   });
-
-  // Add more tests as needed
 });

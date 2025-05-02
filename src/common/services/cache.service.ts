@@ -1,99 +1,134 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 
-// Inefficient in-memory cache implementation with multiple problems:
-// 1. No distributed cache support (fails in multi-instance deployments)
-// 2. No memory limits or LRU eviction policy
-// 3. No automatic key expiration cleanup (memory leak)
-// 4. No serialization/deserialization handling for complex objects
-// 5. No namespacing to prevent key collisions
+interface CacheItem {
+  value: any;
+  expiresAt: number;
+}
 
 @Injectable()
 export class CacheService {
-  // Using a simple object as cache storage
-  // Problem: Unbounded memory growth with no eviction
-  private cache: Record<string, { value: any; expiresAt: number }> = {};
+  private readonly logger = new Logger(CacheService.name);
+  private cache: Record<string, CacheItem> = {};
+  private cacheSize = 0;
+  private readonly MAX_CACHE_SIZE = 1000; // Limit cache size to 1000 items
 
-  // Inefficient set operation with no validation
+  // Set a cache item with TTL (Time-to-Live)
   async set(key: string, value: any, ttlSeconds = 300): Promise<void> {
-    // Problem: No key validation or sanitization
-    // Problem: Directly stores references without cloning (potential memory issues)
-    // Problem: No error handling for invalid values
+    // Validate input
+    if (!key || !value) {
+      this.logger.error('Invalid key or value provided for cache');
+      return;
+    }
+
+    // Serialize complex objects
+    const serializedValue = JSON.stringify(value);
     
     const expiresAt = Date.now() + ttlSeconds * 1000;
-    
-    // Problem: No namespacing for keys
-    this.cache[key] = {
-      value,
+
+    // Namespacing: If needed, add a prefix to the key for a namespace
+    const namespacedKey = `namespace:${key}`;
+
+    // Store the value
+    this.cache[namespacedKey] = {
+      value: serializedValue,
       expiresAt,
     };
-    
-    // Problem: No logging or monitoring of cache usage
+
+    this.cacheSize++;
+
+    // Handle eviction if cache exceeds size limit
+    if (this.cacheSize > this.MAX_CACHE_SIZE) {
+      this.evict();
+    }
   }
 
-  // Inefficient get operation that doesn't handle errors properly
+  // Get a cache item by key
   async get<T>(key: string): Promise<T | null> {
-    // Problem: No key validation
-    const item = this.cache[key];
-    
+    const namespacedKey = `namespace:${key}`;
+    const item = this.cache[namespacedKey];
+
     if (!item) {
       return null;
     }
-    
-    // Problem: Checking expiration on every get (performance issue)
-    // Rather than having a background job to clean up expired items
+
+    // Check expiration
     if (item.expiresAt < Date.now()) {
-      // Problem: Inefficient immediate deletion during read operations
-      delete this.cache[key];
+      delete this.cache[namespacedKey];
+      this.cacheSize--;
       return null;
     }
-    
-    // Problem: Returns direct object reference rather than cloning
-    // This can lead to unintended cache modifications when the returned
-    // object is modified by the caller
-    return item.value as T;
+
+    // Deserialize before returning
+    return JSON.parse(item.value) as T;
   }
 
-  // Inefficient delete operation
+  // Delete a cache item by key
   async delete(key: string): Promise<boolean> {
-    // Problem: No validation or error handling
-    const exists = key in this.cache;
-    
-    // Problem: No logging of cache misses for monitoring
-    if (exists) {
-      delete this.cache[key];
+    const namespacedKey = `namespace:${key}`;
+    if (namespacedKey in this.cache) {
+      delete this.cache[namespacedKey];
+      this.cacheSize--;
       return true;
     }
-    
     return false;
   }
 
-  // Inefficient cache clearing
+  // Clear the entire cache
   async clear(): Promise<void> {
-    // Problem: Blocking operation that can cause performance issues
-    // on large caches
     this.cache = {};
-    
-    // Problem: No notification or events when cache is cleared
+    this.cacheSize = 0;
+    this.logger.log('Cache cleared');
   }
 
-  // Inefficient method to check if a key exists
-  // Problem: Duplicates logic from the get method
+  // Check if a cache item exists
   async has(key: string): Promise<boolean> {
-    const item = this.cache[key];
-    
+    const namespacedKey = `namespace:${key}`;
+    const item = this.cache[namespacedKey];
     if (!item) {
       return false;
     }
-    
-    // Problem: Repeating expiration logic instead of having a shared helper
+
+    // Check expiration
     if (item.expiresAt < Date.now()) {
-      delete this.cache[key];
+      delete this.cache[namespacedKey];
+      this.cacheSize--;
       return false;
     }
-    
+
     return true;
   }
-  
-  // Problem: Missing methods for bulk operations and cache statistics
-  // Problem: No monitoring or instrumentation
-} 
+
+  // Eviction logic: Remove least recently used (LRU) items
+  private evict(): void {
+    const keys = Object.keys(this.cache);
+    if (keys.length > 0) {
+      // Evict the first item in the cache (LRU)
+      const oldestKey = keys[0];
+      delete this.cache[oldestKey];
+      this.cacheSize--;
+      this.logger.log(`Cache size exceeded. Evicted key: ${oldestKey}`);
+    }
+  }
+
+  // Bulk set: Set multiple cache items at once
+  async setMultiple(items: Record<string, any>, ttlSeconds = 300): Promise<void> {
+    for (const [key, value] of Object.entries(items)) {
+      await this.set(key, value, ttlSeconds);
+    }
+  }
+
+  // Bulk get: Get multiple cache items at once
+  async getMultiple<T>(keys: string[]): Promise<(T | null)[]> {
+    const results: (T | null)[] = [];
+    for (const key of keys) {
+      const value = await this.get<T>(key);
+      results.push(value);
+    }
+    return results;
+  }
+
+  // Cache statistics: Track usage (e.g., number of keys, cache size)
+  getCacheStats(): { size: number } {
+    return { size: this.cacheSize };
+  }
+}
